@@ -1,0 +1,32 @@
+using WebAppointmentApi.Domain.Enums;
+
+using WebAppointmentApi.Domain.Common;
+
+namespace WebAppointmentApi.Domain.Entities;
+
+public sealed class User : IMultiTenant
+{
+    public Guid Id { get; set; }
+    public string Email { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+    public UserRole Role { get; set; }
+
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+    public DateTimeOffset? EmailConfirmedAtUtc { get; set; }
+
+    // KVKK disclosure version the user last accepted, and when.
+    public string? KvkkConsentVersion { get; set; }
+    public DateTimeOffset? KvkkConsentAtUtc { get; set; }
+
+    /// <summary>Patients only: a one-time code is sent to their phone after the password.</summary>
+    public bool TwoFactorEnabled { get; set; }
+
+    public int TenantId { get; set; }
+
+    public int? HospitalId { get; set; }
+    public Hospital? Hospital { get; set; }
+
+    public List<RefreshToken> RefreshTokens { get; set; } = new();
+    public List<Appointment> Appointments { get; set; } = new();
+}

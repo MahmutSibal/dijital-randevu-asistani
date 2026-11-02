@@ -1,0 +1,82 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
+using WebAppointmentApi.Application.Common.Abstractions;
+using WebAppointmentApi.Domain.Entities;
+using WebAppointmentApi.Domain.Enums;
+
+namespace WebAppointmentApi.Infrastructure.Security;
+
+public sealed class JwtTokenService : ITokenService
+{
+    private readonly IConfiguration _configuration;
+
+    public JwtTokenService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+
+    public const string SessionClaim = "sid";
+
+    public (string AccessToken, DateTimeOffset ExpiresAtUtc) CreateAccessToken(User user, Guid? sessionId = null)
+    {
+        var issuer = _configuration["Jwt:Issuer"]!;
+        var audience = _configuration["Jwt:Audience"]!;
+        var signingKey = _configuration["Jwt:SigningKey"]!;
+        var minutes = int.Parse(_configuration["Jwt:AccessTokenMinutes"]!);
+
+        var now = DateTimeOffset.UtcNow;
+        var expires = now.AddMinutes(minutes);
+
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(ClaimTypes.Role, user.Role.ToString()),
+        };
+
+        // Admin/Doktor için e-posta claim'i, hasta için eklenmez.
+        if (user.Role is not UserRole.Patient)
+        {
+            claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email));
+        }
+
+        if (sessionId is { } sid)
+        {
+            claims.Add(new Claim(SessionClaim, sid.ToString()));
+        }
+
+        // Multi-tenant: include tenant_id claim
+        if (user.TenantId > 0)
+        {
+            claims.Add(new Claim("tenant_id", user.TenantId.ToString()));
+        }
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: issuer,
+            audience: audience,
+            claims: claims,
+            notBefore: now.UtcDateTime,
+            expires: expires.UtcDateTime,
+            signingCredentials: creds);
+
+        return (new JwtSecurityTokenHandler().WriteToken(token), expires);
+    }
+
+    public string CreateRefreshToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(64);
+        return Convert.ToBase64String(bytes);
+    }
+
+    public string HashRefreshToken(string refreshToken)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken));
+        return Convert.ToBase64String(bytes);
+    }
+}

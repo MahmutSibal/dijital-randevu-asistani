@@ -1,0 +1,20 @@
+{
+  "name": "mhrs-whatsapp-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@wppconnect-team/wppconnect": "^2.2.6",
+    "express": "^5.2.1"
+  },
+  "allowScripts": {
+    "puppeteer@24.43.1": true,
+    "sharp@0.34.5": true
+  }
+}

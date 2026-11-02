@@ -1,0 +1,33 @@
+using WebAppointmentApi.Domain.Common;
+using WebAppointmentApi.Domain.Enums;
+
+namespace WebAppointmentApi.Domain.Entities;
+
+public sealed class Doctor : IMultiTenant
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty; // e.g., "Uz. Dr.", "Prof. Dr." (required)
+
+    public Guid? UserId { get; set; }
+    public User? User { get; set; }
+
+    public int DepartmentId { get; set; }
+    public Department? Department { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    public string? GraduationUniversity { get; set; }
+    public string? ExperienceSummary { get; set; }
+    public DoctorProfileStatus ProfileStatus { get; set; } = DoctorProfileStatus.Draft;
+    public DateTimeOffset? ProfileSubmittedAtUtc { get; set; }
+    public DateTimeOffset? ProfileApprovedAtUtc { get; set; }
+    public Guid? ProfileApprovedByUserId { get; set; }
+
+    public int TenantId { get; set; }
+
+    // Efficiency score for slot optimization (0-100, optional)
+    public int? EfficiencyScore { get; set; }
+
+    public List<Appointment> Appointments { get; set; } = new();
+}

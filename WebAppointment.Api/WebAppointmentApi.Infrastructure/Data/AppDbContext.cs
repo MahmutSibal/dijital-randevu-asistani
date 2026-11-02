@@ -1,0 +1,543 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using WebAppointmentApi.Domain.Entities;
+using WebAppointmentApi.Domain.Common;
+using WebAppointmentApi.Application.Common.Abstractions;
+
+namespace WebAppointmentApi.Infrastructure.Data;
+
+public sealed class AppDbContext : DbContext
+{
+    private readonly ITenantContext _tenant;
+    private readonly IUserContext? _user;
+    private readonly IHttpContextAccessor? _http;
+
+    public AppDbContext(
+        DbContextOptions<AppDbContext> options,
+        ITenantContext tenant,
+        IUserContext? user = null,
+        IHttpContextAccessor? http = null) : base(options)
+    {
+        _tenant = tenant;
+        _user = user;
+        _http = http;
+    }
+
+    public DbSet<User> Users => Set<User>();
+    public DbSet<Patient> Patients => Set<Patient>();
+    public DbSet<Dependent> Dependents => Set<Dependent>();
+
+    public DbSet<Department> Departments => Set<Department>();
+    public DbSet<Doctor> Doctors => Set<Doctor>();
+    public DbSet<Hospital> Hospitals => Set<Hospital>();
+
+    public DbSet<Appointment> Appointments => Set<Appointment>();
+    public DbSet<AppointmentLog> AppointmentLogs => Set<AppointmentLog>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+
+    public DbSet<DoctorAvailability> DoctorAvailabilities => Set<DoctorAvailability>();
+    public DbSet<DoctorTimeOff> DoctorTimeOffs => Set<DoctorTimeOff>();
+    public DbSet<Holiday> Holidays => Set<Holiday>();
+
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    public DbSet<LoginLockout> LoginLockouts => Set<LoginLockout>();
+    public DbSet<PhoneVerificationCode> PhoneVerificationCodes => Set<PhoneVerificationCode>();
+    public DbSet<EmailVerificationCode> EmailVerificationCodes => Set<EmailVerificationCode>();
+
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<WaitlistEntry> Waitlist => Set<WaitlistEntry>();
+    public DbSet<SmaCase> SmaCases => Set<SmaCase>();
+    public DbSet<SiteSetting> SiteSettings => Set<SiteSetting>();
+    public DbSet<AssistantAnswer> AssistantAnswers => Set<AssistantAnswer>();
+    public DbSet<LoginEvent> LoginEvents => Set<LoginEvent>();
+    public DbSet<AppointmentDocument> AppointmentDocuments => Set<AppointmentDocument>();
+    public DbSet<LoginChallenge> LoginChallenges => Set<LoginChallenge>();
+    public DbSet<DoctorReview> DoctorReviews => Set<DoctorReview>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Tenant>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Domain).HasMaxLength(200);
+            b.Property(x => x.IsActive).IsRequired();
+        });
+        modelBuilder.Entity<PhoneVerificationCode>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Phone).HasMaxLength(30).IsRequired();
+            b.Property(x => x.CodeHash).HasMaxLength(200).IsRequired();
+            b.Property(x => x.CodeSalt).HasMaxLength(200).IsRequired();
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+            b.Property(x => x.ExpiresAtUtc).IsRequired();
+            b.Property(x => x.AttemptCount).HasDefaultValue(0);
+
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+
+            b.HasIndex(x => new { x.TenantId, x.Phone, x.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<EmailVerificationCode>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.CodeHash).HasMaxLength(200).IsRequired();
+            b.Property(x => x.CodeSalt).HasMaxLength(200).IsRequired();
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+            b.Property(x => x.ExpiresAtUtc).IsRequired();
+            b.Property(x => x.AttemptCount).HasDefaultValue(0);
+
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+
+            b.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasIndex(x => new { x.TenantId, x.UserId, x.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<User>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Email).HasMaxLength(320).IsRequired();
+            b.Property(x => x.PasswordHash).HasMaxLength(500).IsRequired();
+            b.Property(x => x.FirstName).HasMaxLength(100);
+            b.Property(x => x.LastName).HasMaxLength(100);
+            b.Property(x => x.KvkkConsentVersion).HasMaxLength(20);
+
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Email }).IsUnique();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+
+            b.HasOne(x => x.Hospital)
+                .WithMany()
+                .HasForeignKey(x => x.HospitalId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<SmaCase>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Slug).HasMaxLength(150).IsRequired();
+            b.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
+            b.Property(x => x.ProvinceSlug).HasMaxLength(50).IsRequired();
+            b.Property(x => x.ProvinceName).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Story).HasMaxLength(4000);
+            b.Property(x => x.Iban).HasMaxLength(34).IsRequired();
+            b.Property(x => x.BankAccountHolderName).HasMaxLength(200).IsRequired();
+            b.Property(x => x.PhotoUrl).HasMaxLength(500);
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+
+            b.HasIndex(x => x.Slug).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.ProvinceSlug, x.IsVerified, x.IsPublished });
+        });
+
+        modelBuilder.Entity<SiteSetting>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.IsSmaEnabled).HasDefaultValue(true);
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+            b.HasIndex(x => x.TenantId).IsUnique();
+        });
+
+        modelBuilder.Entity<AssistantAnswer>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.QuestionKey).HasMaxLength(450).IsRequired();
+            b.Property(x => x.ContextHash).HasMaxLength(64).IsRequired();
+            b.Property(x => x.Question).HasMaxLength(2000).IsRequired();
+            b.Property(x => x.Answer).IsRequired();
+            b.Property(x => x.Model).HasMaxLength(100).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+            b.HasIndex(x => new { x.TenantId, x.ContextHash, x.QuestionKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<LoginEvent>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.IpAddress).HasMaxLength(50);
+            b.Property(x => x.Device).HasMaxLength(200);
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+            b.HasIndex(x => new { x.TenantId, x.UserId, x.AtUtc });
+        });
+
+        modelBuilder.Entity<AppointmentDocument>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Code).HasMaxLength(20).IsRequired();
+            b.Property(x => x.PayloadJson).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.AppointmentId });
+        });
+
+        modelBuilder.Entity<LoginChallenge>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.CodeHash).HasMaxLength(128).IsRequired();
+            b.Property(x => x.CodeSalt).HasMaxLength(64).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+        });
+
+        modelBuilder.Entity<DoctorReview>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Comment).HasMaxLength(1000);
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+            b.HasIndex(x => x.AppointmentId).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.DoctorId });
+        });
+
+        modelBuilder.Entity<Hospital>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Address).HasMaxLength(500);
+            b.Property(x => x.Latitude);
+            b.Property(x => x.Longitude);
+            b.Property(x => x.Type).IsRequired();
+            b.Property(x => x.IsDeleted).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => !x.IsDeleted && x.TenantId == _tenant.TenantId);
+
+            b.HasIndex(x => new { x.Latitude, x.Longitude });
+            b.HasIndex(x => new { x.TenantId, x.Name });
+            b.HasIndex(x => new { x.TenantId, x.Type });
+        });
+
+        modelBuilder.Entity<Patient>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.TcKimlikNo).HasMaxLength(11).IsRequired();
+            b.Property(x => x.FirstName).HasMaxLength(100).IsRequired();
+            b.Property(x => x.LastName).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Phone).HasMaxLength(30).IsRequired();
+            b.Property(x => x.IsDeleted).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.Property(x => x.NoShowScore).HasDefaultValue(0);
+            b.Property(x => x.BloodType).HasMaxLength(5);
+            b.Property(x => x.Allergies).HasMaxLength(500);
+            b.Property(x => x.ChronicDiseases).HasMaxLength(500);
+            b.Property(x => x.Medications).HasMaxLength(500);
+            b.Property(x => x.EmergencyContactName).HasMaxLength(100);
+            b.Property(x => x.EmergencyContactPhone).HasMaxLength(20);
+            b.HasQueryFilter(x => !x.IsDeleted && x.TenantId == _tenant.TenantId);
+            b.HasIndex(x => x.TcKimlikNo).IsUnique();
+
+            b.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Dependent>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.FullName).HasMaxLength(200).IsRequired();
+            b.Property(x => x.BirthDate).HasColumnType("date").IsRequired();
+            b.Property(x => x.Relation).IsRequired();
+            b.Property(x => x.TcKimlikNo).HasMaxLength(11).IsRequired();
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+
+            b.HasOne(x => x.GuardianUser)
+                .WithMany()
+                .HasForeignKey(x => x.GuardianUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasIndex(x => new { x.TenantId, x.GuardianUserId, x.TcKimlikNo }).IsUnique();
+        });
+
+        modelBuilder.Entity<Department>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.IsDeleted).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => !x.IsDeleted && x.TenantId == _tenant.TenantId);
+
+            b.HasOne(x => x.Hospital)
+                .WithMany(x => x.Departments)
+                .HasForeignKey(x => x.HospitalId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasIndex(x => new { x.TenantId, x.HospitalId, x.Name });
+        });
+
+        modelBuilder.Entity<DoctorAvailability>(b =>
+        {
+            b.HasKey(x => x.DoctorId);
+            b.Property(x => x.WorkStart).IsRequired();
+            b.Property(x => x.WorkEnd).IsRequired();
+            b.Property(x => x.SlotMinutes).HasDefaultValue(30);
+
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+
+            b.HasOne(x => x.Doctor)
+                .WithMany()
+                .HasForeignKey(x => x.DoctorId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DoctorTimeOff>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.StartAtUtc).IsRequired();
+            b.Property(x => x.EndAtUtc).IsRequired();
+            b.Property(x => x.Reason).HasMaxLength(500);
+
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+
+            b.HasIndex(x => new { x.TenantId, x.DoctorId, x.StartAtUtc });
+        });
+
+        modelBuilder.Entity<Holiday>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Date).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+
+            b.HasIndex(x => new { x.TenantId, x.Date }).IsUnique();
+        });
+
+        modelBuilder.Entity<Doctor>(b =>
+        {
+                        b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.IsActive).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.Property(x => x.GraduationUniversity).HasMaxLength(200);
+            b.Property(x => x.ExperienceSummary).HasMaxLength(2000);
+            b.Property(x => x.ProfileStatus).IsRequired().HasConversion<int>().HasDefaultValue(WebAppointmentApi.Domain.Enums.DoctorProfileStatus.Draft);
+            b.Property(x => x.ProfileSubmittedAtUtc);
+            b.Property(x => x.ProfileApprovedAtUtc);
+            b.Property(x => x.ProfileApprovedByUserId);
+
+            b.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            b.HasIndex(x => x.UserId).IsUnique().HasFilter("UserId IS NOT NULL");
+
+            b.HasOne(x => x.Department)
+                .WithMany(x => x.Doctors)
+                .HasForeignKey(x => x.DepartmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasIndex(x => new { x.TenantId, x.DepartmentId, x.IsActive });
+        });
+
+        modelBuilder.Entity<Appointment>(b =>
+        {
+                        b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+            b.HasKey(x => x.Id);
+            b.Property(x => x.StartAt).IsRequired();
+            b.Property(x => x.EndAt).IsRequired();
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+
+            b.HasOne(x => x.User)
+                .WithMany(x => x.Appointments)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasOne(x => x.Doctor)
+                .WithMany(x => x.Appointments)
+                .HasForeignKey(x => x.DoctorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasOne(x => x.Dependent)
+                .WithMany()
+                .HasForeignKey(x => x.DependentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            b.HasIndex(x => new { x.TenantId, x.DoctorId, x.StartAt, x.EndAt });
+            b.HasIndex(x => new { x.TenantId, x.UserId, x.StartAt, x.EndAt });
+            b.HasIndex(x => new { x.TenantId, x.CreatedAtUtc, x.DoctorId });
+            b.HasIndex(x => new { x.Status, x.StartAt, x.ReminderSentAtUtc })
+                .HasFilter("[ReminderSentAtUtc] IS NULL")
+                .HasDatabaseName("IX_Appointments_Reminder");
+        });
+
+        modelBuilder.Entity<AppointmentLog>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Action).HasMaxLength(100).IsRequired();
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasIndex(x => new { x.AppointmentId, x.CreatedAtUtc });
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+        });
+
+        modelBuilder.Entity<Notification>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Message).HasMaxLength(500).IsRequired();
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+            b.Property(x => x.IsSent).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.HasIndex(x => new { x.UserId, x.CreatedAtUtc });
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+        });
+
+        modelBuilder.Entity<RefreshToken>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.TokenHash).HasMaxLength(200).IsRequired();
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+            b.Property(x => x.ExpiresAtUtc).IsRequired();
+            b.Property(x => x.TenantId).IsRequired();
+            b.Property(x => x.Device).HasMaxLength(200);
+            b.Property(x => x.IpAddress).HasMaxLength(50);
+            b.HasIndex(x => x.SessionId);
+
+            b.HasOne(x => x.User)
+                .WithMany(x => x.RefreshTokens)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasIndex(x => new { x.TenantId, x.UserId, x.TokenHash }).IsUnique();
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+        });
+
+        modelBuilder.Entity<AuditLog>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.TenantId).IsRequired();
+            b.Property(x => x.Role).HasMaxLength(100);
+            b.Property(x => x.Action).HasMaxLength(50).IsRequired();
+            b.Property(x => x.Entity).HasMaxLength(200).IsRequired();
+            b.Property(x => x.EntityId).HasMaxLength(200).IsRequired();
+            b.Property(x => x.TimestampUtc).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Entity, x.TimestampUtc });
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+        });
+
+        modelBuilder.Entity<WaitlistEntry>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.TenantId).IsRequired();
+            b.Property(x => x.Status).IsRequired();
+            b.Property(x => x.CreatedAtUtc).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Status, x.CreatedAtUtc });
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+        });
+
+        modelBuilder.Entity<LoginLockout>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.TenantId).IsRequired();
+            b.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
+            b.Property(x => x.FailedCount).IsRequired();
+            b.Property(x => x.FirstFailedAtUtc).IsRequired();
+            b.Property(x => x.LastFailedAtUtc).IsRequired();
+            b.Property(x => x.LockedUntilUtc);
+            b.Property(x => x.LastIpAddress).HasMaxLength(50);
+
+            b.HasIndex(x => new { x.TenantId, x.NormalizedEmail }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.LockedUntilUtc });
+            b.HasQueryFilter(x => x.TenantId == _tenant.TenantId);
+        });
+
+        base.OnModelCreating(modelBuilder);
+    }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var userId = _user?.UserId;
+        var role = _user?.Role;
+        var ip = _http?.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+
+        var auditEntries = new List<AuditLog>();
+
+        foreach (var entry in ChangeTracker.Entries().Where(e => e.State == EntityState.Added || e.State == EntityState.Modified || e.State == EntityState.Deleted))
+        {
+            if (entry.Entity is AuditLog) continue;
+
+            var entityName = entry.Entity.GetType().Name;
+            var entityId = TryGetIdString(entry.Entity);
+            var action = entry.State switch
+            {
+                EntityState.Added => "Created",
+                EntityState.Modified => "Updated",
+                EntityState.Deleted => "Deleted",
+                _ => "Unknown"
+            };
+
+            if (entry.Entity is IMultiTenant mt && mt.TenantId == 0)
+            {
+                mt.TenantId = _tenant.TenantId;
+            }
+
+            string? before = null;
+            string? after = null;
+
+            try
+            {
+                if (entry.State == EntityState.Modified || entry.State == EntityState.Deleted)
+                {
+                    var original = entry.OriginalValues.ToObject();
+                    before = JsonSerializer.Serialize(original);
+                }
+                if (entry.State == EntityState.Added || entry.State == EntityState.Modified)
+                {
+                    after = JsonSerializer.Serialize(entry.Entity);
+                }
+            }
+            catch { /* swallow serialization issues */ }
+
+            auditEntries.Add(new AuditLog
+            {
+                TenantId = _tenant.TenantId,
+                UserId = userId.HasValue && userId.Value != Guid.Empty ? userId : null,
+                Role = role ?? string.Empty,
+                Action = action,
+                Entity = entityName,
+                EntityId = entityId,
+                Before = before,
+                After = after,
+                TimestampUtc = now,
+                IpAddress = ip,
+            });
+        }
+
+        var result = await base.SaveChangesAsync(cancellationToken);
+
+        if (auditEntries.Count > 0)
+        {
+            AuditLogs.AddRange(auditEntries);
+            await base.SaveChangesAsync(cancellationToken);
+        }
+
+        return result;
+    }
+
+    private static string TryGetIdString(object entity)
+    {
+        var prop = entity.GetType().GetProperty("Id");
+        var val = prop?.GetValue(entity);
+        return val?.ToString() ?? string.Empty;
+    }
+}
